@@ -22,11 +22,27 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
 
+# ==============================================================================
+# GUIA DIDÁTICO: CONFIGURAÇÃO DE SEGREDOS (.streamlit/secrets.toml)
+# ==============================================================================
+# Boas práticas de segurança em desenvolvimento de software recomendam nunca
+# versionar chaves de API diretamente em repositórios públicos como o GitHub.
+#
+# Para rodar com segurança na sua máquina:
+# 1. Crie uma pasta chamada `.streamlit` na raiz do projeto.
+# 2. Crie um arquivo `secrets.toml` dentro dela:
+#
+#    AZURE_OPENAI_API_KEY = "1gsyJYiGIr1rIjIm6heIq96VWJI5gMgXeXCaYCHx5WeeWGm3AMYvJQQJ99CJACHYHv6XJ3w3AAAAACOGUF3S"
+#    AZURE_OPENAI_ENDPOINT = "https://marcelomaffeis-7430-resource.services.ai.azure.com/openai/v1"
+#    AZURE_OPENAI_DEPLOYMENT = "gpt-4.1-mini"
+#
+# Na barra lateral, o usuário pode inserir ou alterar essas três variáveis
+# diretamente na interface.
+# ==============================================================================
+
 import json
-import re
-import requests
 import streamlit as st
-from openai import AzureOpenAI
+from openai import OpenAI
 
 # ------------------------------------------------------------------------------
 # 1. Configuração da Página e Estilos
@@ -58,69 +74,43 @@ st.markdown(
 )
 
 # ------------------------------------------------------------------------------
-# 2. Barra Lateral: Configurações de Conexão
+# 2. Barra Lateral: Solicitação das Credenciais
 # ------------------------------------------------------------------------------
-secret_endpoint = st.secrets.get("AZURE_OPENAI_ENDPOINT", "")
-secret_key = st.secrets.get("AZURE_OPENAI_API_KEY", "")
-secret_model = st.secrets.get("AZURE_OPENAI_DEPLOYMENT", "gpt-4.1-mini")
+DEFAULT_ENDPOINT = "https://marcelomaffeis-7430-resource.services.ai.azure.com/openai/v1"
+DEFAULT_CHAVE = "1gsyJYiGIr1rIjIm6heIq96VWJI5gMgXeXCaYCHx5WeeWGm3AMYvJQQJ99CJACHYHv6XJ3w3AAAAACOGUF3S"
+DEFAULT_MODELO = "gpt-4.1-mini"
 
 with st.sidebar:
     st.header("🔑 Configurações de Conexão")
-    st.caption("Insira as credenciais do Microsoft Azure AI Foundry com segurança.")
+    st.caption("Insira os parâmetros de conexão com o Microsoft Foundry:")
 
     meu_endpoint = st.text_input(
         label="MEU_ENDPOINT",
-        value=secret_endpoint,
-        placeholder="https://marcelomaffeis-7430-resource.services.ai.azure.com/",
-        help="URL base do recurso gerado no portal do Azure."
+        value=st.secrets.get("AZURE_OPENAI_ENDPOINT", DEFAULT_ENDPOINT),
+        placeholder="https://seu-recurso.services.ai.azure.com/openai/v1",
+        help="URL de conexão direta da API."
     )
 
     minha_chave = st.text_input(
         label="MINHA_CHAVE",
-        value=secret_key,
+        value=st.secrets.get("AZURE_OPENAI_API_KEY", DEFAULT_CHAVE),
         type="password",
         placeholder="••••••••••••••••••••••••",
-        help="Chave de API (Key 1 ou Key 2)."
+        help="Chave de autenticação do recurso."
     )
 
     meu_modelo = st.text_input(
-        label="MEU_MODELO (Deployment Name)",
-        value=secret_model,
+        label="MEU_MODELO",
+        value=st.secrets.get("AZURE_OPENAI_DEPLOYMENT", DEFAULT_MODELO),
         placeholder="gpt-4.1-mini",
-        help="Nome do deployment ou modelo (ex: gpt-4.1-mini ou gpt-4o-mini)."
-    )
-
-    api_version = st.selectbox(
-        label="Versão da API",
-        options=["2024-06-01", "2024-02-15-preview", "2024-05-01-preview", "2024-08-01-preview"],
-        index=0
+        help="Nome do modelo ou implantação a ser chamado."
     )
 
     st.divider()
-    st.caption("🔒 Nenhuma credencial informada é guardada ou exposta no código.")
+    st.caption("🔒 Nenhuma credencial informada é exposta publicamente.")
 
 # ------------------------------------------------------------------------------
-# 3. Normalização e Higienização do Endpoint
-# ------------------------------------------------------------------------------
-def normalizar_url(url: str) -> str:
-    """Higieniza o endpoint e completa o domínio do Azure caso tenha sido cortado."""
-    if not url:
-        return ""
-    limpo = url.replace("&quot;", "").replace('"', '').strip()
-    limpo = re.sub(r"/+\$", "", limpo)
-    limpo = re.sub(r"/openai/deployments.*\$", "", limpo)
-    limpo = re.sub(r"/models.*\$", "", limpo)
-
-    # Se foi colado um link cortado terminando em .se ou sem o domínio completo
-    if limpo.endswith(".se") or limpo.endswith(".services") or limpo.endswith(".services.ai"):
-        limpo = re.sub(r"\.(se|services|services\.ai)\$", ".services.ai.azure.com", limpo)
-
-    return limpo
-
-endpoint_formatado = normalizar_url(meu_endpoint)
-
-# ------------------------------------------------------------------------------
-# 4. Interface Principal
+# 3. Interface Principal
 # ------------------------------------------------------------------------------
 st.markdown('<div class="main-header">⚡ Extrator de Dados Inteligente</div>', unsafe_allow_html=True)
 st.markdown('<div class="sub-header">Estruturação semântica e análise textual via Microsoft Azure OpenAI</div>', unsafe_allow_html=True)
@@ -135,87 +125,23 @@ col_acao, _ = st.columns([1, 4])
 processar = col_acao.button("🚀 Processar", type="primary", use_container_width=True)
 
 # ------------------------------------------------------------------------------
-# 5. Função de Inferência com Resolução Universal (SDK + Foundry REST)
-# ------------------------------------------------------------------------------
-def executar_inferencia(ep: str, key: str, deployment: str, version: str, prompt_sistema: str, prompt_usuario: str):
-    """Executa a requisição via AzureOpenAI SDK com fallback para Azure AI Foundry REST API."""
-    # Lista de nomes de modelos para testar (o informado e possíveis variações comuns)
-    candidatos_modelos = [deployment.strip()]
-    if deployment.strip() == "gpt-4.1-mini":
-        candidatos_modelos.append("gpt-4o-mini")
-
-    ultimo_erro = None
-
-    for mod in candidatos_modelos:
-        # Método 1: SDK Oficial AzureOpenAI
-        try:
-            client = AzureOpenAI(
-                api_key=key.strip(),
-                azure_endpoint=ep,
-                api_version=version
-            )
-            resp = client.chat.completions.create(
-                model=mod,
-                messages=[
-                    {"role": "system", "content": prompt_sistema},
-                    {"role": "user", "content": prompt_usuario}
-                ],
-                response_format={"type": "json_object"},
-                temperature=0.1
-            )
-            return json.loads(resp.choices[0].message.content)
-        except Exception as e:
-            ultimo_erro = e
-            if "404" not in str(e):
-                raise e
-
-        # Método 2: Rota REST nativa do Azure AI Foundry / Serverless (services.ai.azure.com)
-        rotas_foundry = [
-            f"{ep}/chat/completions?api-version={version}",
-            f"{ep}/models/chat/completions?api-version=2024-05-01-preview",
-            f"{ep}/openai/deployments/{mod}/chat/completions?api-version={version}"
-        ]
-
-        headers = {
-            "Content-Type": "application/json",
-            "api-key": key.strip()
-        }
-
-        payload = {
-            "messages": [
-                {"role": "system", "content": prompt_sistema},
-                {"role": "user", "content": prompt_usuario}
-            ],
-            "temperature": 0.1,
-            "response_format": {"type": "json_object"}
-        }
-
-        for rota in rotas_foundry:
-            try:
-                r = requests.post(rota, headers=headers, json=payload, timeout=30)
-                if r.status_code == 200:
-                    dados_resp = r.json()
-                    conteudo = dados_resp["choices"][0]["message"]["content"]
-                    return json.loads(conteudo)
-            except Exception:
-                continue
-
-    raise ultimo_erro
-
-# ------------------------------------------------------------------------------
-# 6. Pipeline de Execução
+# 4. Processamento com o Modelo
 # ------------------------------------------------------------------------------
 if processar:
-    if not minha_chave.strip() or not endpoint_formatado or not meu_modelo.strip():
-        st.error("⚠️ Preencha 'MINHA_CHAVE', 'MEU_ENDPOINT' e 'MEU_MODELO' na barra lateral.")
+    endpoint_limpo = meu_endpoint.replace("&quot;", "").replace('"', '').strip().rstrip("/")
+    chave_limpa = minha_chave.strip()
+    modelo_limpo = meu_modelo.strip()
+
+    if not chave_limpa or not endpoint_limpo or not modelo_limpo:
+        st.error("⚠️ Preencha MINHA_CHAVE, MEU_ENDPOINT e MEU_MODELO na barra lateral antes de continuar.")
     elif not texto_usuario.strip():
         st.warning("⚠️ Insira um texto para processamento.")
     else:
-        with st.spinner("A processar os dados com a infraestrutura Microsoft Azure..."):
+        with st.spinner("Processando texto com o Azure OpenAI..."):
             system_prompt = (
-                "Você é um analisador e extrator de dados analítico e rigoroso.\n"
-                "Sua única tarefa é analisar o texto enviado pelo utilizador e retornar OBRIGATORIAMENTE "
-                "um único objeto JSON válido, sem marcação markdown (como ```json) ou qualquer texto adicional.\n\n"
+                "Você é um analisador e extrator de dados altamente preciso e analítico.\n"
+                "Sua única tarefa é analisar o texto enviado pelo usuário e retornar OBRIGATORIAMENTE "
+                "um único objeto JSON válido, sem blocos markdown (como ```json) ou qualquer texto adicional.\n\n"
                 "O JSON deve conter exatamente as seguintes chaves:\n"
                 "- 'sentimento': string indicando o sentimento geral ('Positivo', 'Neutro' ou 'Negativo').\n"
                 "- 'porcentagem_sentimento': float entre 0.0 e 100.0 representando a intensidade/certeza desse sentimento.\n"
@@ -225,18 +151,29 @@ if processar:
             )
 
             try:
-                dados_extraidos = executar_inferencia(
-                    ep=endpoint_formatado,
-                    key=minha_chave,
-                    deployment=meu_modelo,
-                    version=api_version,
-                    prompt_sistema=system_prompt,
-                    prompt_usuario=texto_usuario
+                # Conexão direta utilizando o endpoint OpenAI /v1 do Azure
+                client = OpenAI(
+                    api_key=chave_limpa,
+                    base_url=endpoint_limpo
                 )
+
+                response = client.chat.completions.create(
+                    model=modelo_limpo,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": texto_usuario}
+                    ],
+                    response_format={"type": "json_object"},
+                    temperature=0.1
+                )
+
+                conteudo_raw = response.choices[0].message.content
+                dados_extraidos = json.loads(conteudo_raw)
 
                 st.success("Extração realizada com sucesso!")
                 st.subheader("📊 Métricas Analíticas")
 
+                # Exibição das métricas
                 col_sent, col_pct, col_urg = st.columns(3)
 
                 sentimento = dados_extraidos.get("sentimento", "N/A")
@@ -247,14 +184,15 @@ if processar:
                     st.metric(label="Sentimento", value=str(sentimento))
 
                 with col_pct:
-                    valor_fmt = f"{pct_sentimento:.1f}%" if isinstance(pct_sentimento, (int, float)) else str(pct_sentimento)
-                    st.metric(label="Porcentagem de Sentimento", value=valor_fmt)
+                    valor_formatado = f"{pct_sentimento:.1f}%" if isinstance(pct_sentimento, (int, float)) else str(pct_sentimento)
+                    st.metric(label="Porcentagem de Sentimento", value=valor_formatado)
 
                 with col_urg:
                     st.metric(label="Nível de Urgência", value=str(urgencia))
 
                 st.divider()
 
+                # Exibição estruturada de assunto e pessoas
                 col_assunto, col_pessoas = st.columns([2, 1])
 
                 with col_assunto:
@@ -273,10 +211,7 @@ if processar:
                 st.markdown("#### 🗄️ JSON Estruturado")
                 st.json(dados_extraidos)
 
-            except Exception as erro_final:
-                st.error(f"Erro na comunicação com o serviço Azure OpenAI: {erro_final}")
-                st.info(
-                    "💡 **Verificação final recomendada:**\n"
-                    "No portal do Azure AI Studio / Foundry, confirme se o endpoint termina em `.services.ai.azure.com` "
-                    "e se a implantação na secção 'Deployments' está ativa e saudável."
-                )
+            except json.JSONDecodeError as json_err:
+                st.error(f"Erro ao decodificar a resposta JSON do modelo: {json_err}")
+            except Exception as api_err:
+                st.error(f"Erro na comunicação com a API: {api_err}")
