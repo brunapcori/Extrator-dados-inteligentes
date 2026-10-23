@@ -22,24 +22,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
 
-# ==============================================================================
-# GUIA DIDÁTICO: CONFIGURAÇÃO DE SEGREDOS (.streamlit/secrets.toml)
-# ==============================================================================
-# Para não expor credenciais sensíveis no repositório público:
-#
-# 1. Crie uma pasta chamada `.streamlit` na raiz do projeto.
-# 2. Crie um ficheiro `secrets.toml` dentro dela com:
-#
-#    AZURE_OPENAI_API_KEY = "sua_chave_aqui"
-#    AZURE_OPENAI_ENDPOINT = "https://seu-recurso.services.ai.azure.com/"
-#    AZURE_OPENAI_DEPLOYMENT = "gpt-4.1-mini"
-#
-# Caso utilize a interface, preencha os campos na barra lateral com atenção:
-# - MEU_ENDPOINT: o URL completo (ex: https://nome.services.ai.azure.com/)
-# - MEU_MODELO: o nome exato atribuído à implantação (Deployment Name)
-# ==============================================================================
-
 import json
+import re
 import streamlit as st
 from openai import AzureOpenAI
 
@@ -73,21 +57,21 @@ st.markdown(
 )
 
 # ------------------------------------------------------------------------------
-# 2. Barra Lateral: Recolha Segura de Credenciais com Seletor de Versão
+# 2. Barra Lateral: Configurações de Conexão com Diagnóstico Automático
 # ------------------------------------------------------------------------------
 secret_endpoint = st.secrets.get("AZURE_OPENAI_ENDPOINT", "")
 secret_key = st.secrets.get("AZURE_OPENAI_API_KEY", "")
-secret_model = st.secrets.get("AZURE_OPENAI_DEPLOYMENT", "gpt-4.1-mini")
+secret_model = st.secrets.get("AZURE_OPENAI_DEPLOYMENT", "gpt-4o-mini")
 
 with st.sidebar:
     st.header("🔑 Configurações de Conexão")
-    st.caption("Insira as credenciais do Microsoft Azure AI Foundry com segurança.")
+    st.caption("Insira as credenciais do Microsoft Azure AI Foundry.")
 
     meu_endpoint = st.text_input(
         label="MEU_ENDPOINT",
         value=secret_endpoint,
         placeholder="https://seu-recurso.services.ai.azure.com/",
-        help="URL base do recurso criado no Azure."
+        help="Insira o URL completo do recurso gerado no portal Azure."
     )
 
     minha_chave = st.text_input(
@@ -101,26 +85,50 @@ with st.sidebar:
     meu_modelo = st.text_input(
         label="MEU_MODELO (Deployment Name)",
         value=secret_model,
-        placeholder="gpt-4.1-mini",
-        help="Nome exato da implantação (Deployment) criada no Azure AI Studio."
+        placeholder="gpt-4o-mini",
+        help="Nome exato da implantação (Deployment) criada na aba 'Deployments' do Azure AI Foundry."
     )
 
-    # Versões estáveis e compatíveis da API do Azure OpenAI
     api_version = st.selectbox(
-        label="Versão da API (api_version)",
-        options=["2024-06-01", "2024-02-15-preview", "2024-05-01-preview", "2023-05-15"],
+        label="Versão da API",
+        options=[
+            "2024-06-01",
+            "2024-08-01-preview",
+            "2024-02-15-preview",
+            "2024-05-01-preview",
+            "2023-05-15"
+        ],
         index=0,
-        help="Se receber o erro 404, alterne para '2024-06-01' ou '2024-02-15-preview'."
+        help="Seletor de compatibilidade para diferentes versões do Azure OpenAI."
+    )
+
+    tentar_correcao_auto = st.checkbox(
+        "Tentar fallback automático de deployment (gpt-4o-mini)",
+        value=True,
+        help="Caso 'gpt-4.1-mini' devolva 404, tenta automaticamente 'gpt-4o-mini'."
     )
 
     st.divider()
-    st.caption("🔒 Nenhuma credencial informada é guardada ou versionada no código.")
-
-# Higienização do URL do endpoint
-endpoint_formatado = meu_endpoint.replace("&quot;", "").strip().rstrip("/")
+    st.caption("🔒 Nenhuma credencial informada é guardada ou exposta no código.")
 
 # ------------------------------------------------------------------------------
-# 3. Interface Principal
+# 3. Função de Sanitização e Validação de URL
+# ------------------------------------------------------------------------------
+def limpar_endpoint(url: str) -> str:
+    """Normaliza o endpoint removendo aspas, espaços e barras finais."""
+    if not url:
+        return ""
+    limpo = url.replace("&quot;", "").replace('"', '').strip()
+    limpo = re.sub(r"/+\$", "", limpo)
+    # Se o utilizador inseriu um caminho relativo ao chat completions, remove-o
+    limpo = re.sub(r"/openai/deployments.*\$", "", limpo)
+    limpo = re.sub(r"/models.*\$", "", limpo)
+    return limpo
+
+endpoint_formatado = limpar_endpoint(meu_endpoint)
+
+# ------------------------------------------------------------------------------
+# 4. Interface Principal
 # ------------------------------------------------------------------------------
 st.markdown('<div class="main-header">⚡ Extrator de Dados Inteligente</div>', unsafe_allow_html=True)
 st.markdown('<div class="sub-header">Estruturação semântica e análise textual via Microsoft Azure OpenAI</div>', unsafe_allow_html=True)
@@ -135,7 +143,7 @@ col_acao, _ = st.columns([1, 4])
 processar = col_acao.button("🚀 Processar", type="primary", use_container_width=True)
 
 # ------------------------------------------------------------------------------
-# 4. Processamento com Chamada ao Azure OpenAI
+# 5. Execução do Processamento e Tratamento de Erros
 # ------------------------------------------------------------------------------
 if processar:
     if not minha_chave.strip() or not endpoint_formatado or not meu_modelo.strip():
@@ -143,10 +151,10 @@ if processar:
     elif not texto_usuario.strip():
         st.warning("⚠️ Insira um texto para processamento.")
     else:
-        with st.spinner("A processar os dados com o Azure OpenAI..."):
+        with st.spinner("A comunicar com o serviço Azure OpenAI..."):
             system_prompt = (
                 "Você é um analisador e extrator de dados analítico e rigoroso.\n"
-                "Sua única tarefa é analisar o texto enviado pelo usuário e retornar OBRIGATORIAMENTE "
+                "Sua única tarefa é analisar o texto enviado pelo utilizador e retornar OBRIGATORIAMENTE "
                 "um único objeto JSON válido, sem marcação markdown (como ```json) ou qualquer texto adicional.\n\n"
                 "O JSON deve conter exatamente as seguintes chaves:\n"
                 "- 'sentimento': string indicando o sentimento geral ('Positivo', 'Neutro' ou 'Negativo').\n"
@@ -156,27 +164,50 @@ if processar:
                 "- 'nivel_de_urgencia': string estritamente com um dos seguintes valores: 'Baixo', 'Medio' ou 'Alto'."
             )
 
-            try:
-                # Inicialização do cliente Azure OpenAI
-                client = AzureOpenAI(
-                    api_key=minha_chave.strip(),
-                    azure_endpoint=endpoint_formatado,
-                    api_version=api_version
-                )
+            # Lista de tentativas: primeiro o modelo digitado, seguido de fallbacks se ativado
+            modelos_para_tentar = [meu_modelo.strip()]
+            if tentar_correcao_auto:
+                for fallback in ["gpt-4o-mini", "gpt-4o", "gpt-4"]:
+                    if fallback not in modelos_para_tentar:
+                        modelos_para_tentar.append(fallback)
 
-                response = client.chat.completions.create(
-                    model=meu_modelo.strip(),
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": texto_usuario}
-                    ],
-                    response_format={"type": "json_object"},
-                    temperature=0.1
-                )
+            sucesso = False
+            ultimo_erro = None
 
-                conteudo_raw = response.choices[0].message.content
-                dados_extraidos = json.loads(conteudo_raw)
+            for mod in modelos_para_tentar:
+                try:
+                    client = AzureOpenAI(
+                        api_key=minha_chave.strip(),
+                        azure_endpoint=endpoint_formatado,
+                        api_version=api_version
+                    )
 
+                    response = client.chat.completions.create(
+                        model=mod,
+                        messages=[
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": texto_usuario}
+                        ],
+                        response_format={"type": "json_object"},
+                        temperature=0.1
+                    )
+
+                    conteudo_raw = response.choices[0].message.content
+                    dados_extraidos = json.loads(conteudo_raw)
+                    sucesso = True
+                    
+                    if mod != meu_modelo.strip():
+                        st.info(f"💡 O modelo original retornou 404, mas a requisição obteve sucesso com o deployment alternativo: **`{mod}`**.")
+                    break
+
+                except Exception as ex:
+                    ultimo_erro = ex
+                    # Se for 404 e tiver mais modelos na lista, tenta o próximo
+                    if "404" in str(ex) and mod != modelos_para_tentar[-1]:
+                        continue
+                    break
+
+            if sucesso:
                 st.success("Extração realizada com sucesso!")
                 st.subheader("📊 Métricas Analíticas")
 
@@ -190,8 +221,8 @@ if processar:
                     st.metric(label="Sentimento", value=str(sentimento))
 
                 with col_pct:
-                    valor_formatado = f"{pct_sentimento:.1f}%" if isinstance(pct_sentimento, (int, float)) else str(pct_sentimento)
-                    st.metric(label="Porcentagem de Sentimento", value=valor_formatado)
+                    valor_fmt = f"{pct_sentimento:.1f}%" if isinstance(pct_sentimento, (int, float)) else str(pct_sentimento)
+                    st.metric(label="Porcentagem de Sentimento", value=valor_fmt)
 
                 with col_urg:
                     st.metric(label="Nível de Urgência", value=str(urgencia))
@@ -216,15 +247,11 @@ if processar:
                 st.markdown("#### 🗄️ JSON Estruturado")
                 st.json(dados_extraidos)
 
-            except json.JSONDecodeError as json_err:
-                st.error(f"Erro ao descodificar a resposta JSON do modelo: {json_err}")
-            except Exception as api_err:
-                msg_erro = str(api_err)
-                st.error(f"Erro na comunicação com o serviço Azure OpenAI: {msg_erro}")
-                if "404" in msg_erro:
-                    st.warning(
-                        "🔍 **Dica para o erro 404:**\n"
-                        "1. Certifique-se de que o valor em **MEU_MODELO** corresponde exatamente ao **Deployment name** registado no Azure Foundry (e não ao nome genérico do modelo).\n"
-                        "2. Alterne a **Versão da API** na barra lateral para `2024-06-01` ou `2024-02-15-preview`.\n"
-                        "3. Valide se o URL do **MEU_ENDPOINT** termina com `.services.ai.azure.com` ou `.openai.azure.com` conforme indicado na visão geral da implantação."
-                    )
+            else:
+                st.error(f"Erro na comunicação com o serviço Azure OpenAI: {ultimo_erro}")
+                st.warning(
+                    "🔧 **Ações recomendadas para corrigir o 404 no Azure AI Foundry:**\n\n"
+                    "1. **Verifique o nome em 'Deployments':** Vá ao portal do [Azure AI Studio](https://ai.azure.com/) > separador **Deployments** e confira o valor exato da coluna **Deployment name**. O modelo padrão do OpenAI é **`gpt-4o-mini`** (com 'o'), enquanto no ecrã está preenchido `gpt-4.1-mini`.\n"
+                    "2. **Verifique se o URL está completo:** O endpoint deve terminar com o domínio completo (por exemplo: `.services.ai.azure.com` ou `.openai.azure.com`).\n"
+                    "3. **Alterne a versão da API:** Tente selecionar `2024-08-01-preview` ou `2024-02-15-preview` na barra lateral."
+                )
