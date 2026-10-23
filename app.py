@@ -25,12 +25,19 @@ SOFTWARE.
 # ==============================================================================
 # GUIA DIDÁTICO: CONFIGURAÇÃO DE SEGREDOS (.streamlit/secrets.toml)
 # ==============================================================================
-# 1. Crie uma pasta chamada `.streamlit` na raiz do projeto.
-# 2. Crie um ficheiro `secrets.toml` dentro dela.
-# 3. Adicione as chaves:
+# Para não expor suas credenciais publicamente no repositório do GitHub:
+#
+# 1. Você pode preencher os campos diretamente na barra lateral (Sidebar) do app,
+#    com a chave protegida por máscara de senha.
+# 2. Alternativamente, em ambiente local ou no Streamlit Cloud, crie o arquivo
+#    `.streamlit/secrets.toml` com:
+#
 #    AZURE_OPENAI_API_KEY = "sua_chave_aqui"
 #    AZURE_OPENAI_ENDPOINT = "https://seu-recurso.services.ai.azure.com/"
 #    AZURE_OPENAI_DEPLOYMENT = "gpt-4.1-mini"
+#
+# Quando presentes no secrets.toml, os campos da barra lateral serão preenchidos
+# automaticamente, mas ainda poderão ser alterados pelo usuário se necessário.
 # ==============================================================================
 
 import json
@@ -38,223 +45,124 @@ import streamlit as st
 from openai import AzureOpenAI
 
 # ------------------------------------------------------------------------------
-# 1. Configuração da Página e Tema Futurista com Alto Contraste
+# 1. Configuração da Página e Estilos Visuais
 # ------------------------------------------------------------------------------
 st.set_page_config(
-    page_title="NEXUS AI | Extrator Neural",
+    page_title="Extrator Inteligente | Azure OpenAI",
     page_icon="⚡",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Estilização CSS completa corrigindo áreas de texto, barra lateral e contraste
-CSS_THEME = (
-    "<style>\n"
-    "    @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@500;600;700&display=swap');\n"
-    "    \n"
-    "    /* Fundo da Aplicação */\n"
-    "    .stApp {\n"
-    "        background: radial-gradient(circle at top right, #0d1b2a 0%, #050b14 100%) !important;\n"
-    "        color: #e0e6ed !important;\n"
-    "        font-family: 'Rajdhani', sans-serif;\n"
-    "    }\n"
-    "    \n"
-    "    /* Barra Lateral (Sidebar) no tema escuro */\n"
-    "    section[data-testid='stSidebar'] {\n"
-    "        background-color: #070e18 !important;\n"
-    "        border-right: 1px solid rgba(0, 242, 254, 0.2) !important;\n"
-    "    }\n"
-    "    \n"
-    "    /* Títulos */\n"
-    "    .futuristic-title {\n"
-    "        font-family: 'Orbitron', monospace;\n"
-    "        font-size: 2.3rem;\n"
-    "        font-weight: 900;\n"
-    "        letter-spacing: 2px;\n"
-    "        background: linear-gradient(90deg, #00f2fe 0%, #4facfe 100%);\n"
-    "        -webkit-background-clip: text;\n"
-    "        -webkit-text-fill-color: transparent;\n"
-    "        text-shadow: 0 0 25px rgba(0, 242, 254, 0.35);\n"
-    "        margin-bottom: 0.1rem;\n"
-    "    }\n"
-    "    \n"
-    "    .futuristic-sub {\n"
-    "        font-size: 1.05rem;\n"
-    "        color: #7f9cf5;\n"
-    "        letter-spacing: 1px;\n"
-    "        margin-bottom: 1.8rem;\n"
-    "    }\n"
-    "    \n"
-    "    /* Rótulo da caixa de texto (Label) */\n"
-    "    div[data-testid='stTextArea'] label {\n"
-    "        color: #00f2fe !important;\n"
-    "        font-size: 1.05rem !important;\n"
-    "        font-weight: 600 !important;\n"
-    "        letter-spacing: 1px !important;\n"
-    "    }\n"
-    "    \n"
-    "    /* Caixa de Texto (Fundo escuro e letras brancas bem visíveis) */\n"
-    "    div[data-testid='stTextArea'] textarea {\n"
-    "        background-color: #0a1526 !important;\n"
-    "        color: #ffffff !important;\n"
-    "        font-family: 'Rajdhani', sans-serif !important;\n"
-    "        font-size: 1.15rem !important;\n"
-    "        border: 1px solid #00f2fe !important;\n"
-    "        border-radius: 8px !important;\n"
-    "        box-shadow: 0 0 10px rgba(0, 242, 254, 0.15) !important;\n"
-    "    }\n"
-    "    \n"
-    "    div[data-testid='stTextArea'] textarea:focus {\n"
-    "        border-color: #38bdf8 !important;\n"
-    "        box-shadow: 0 0 15px rgba(56, 189, 248, 0.4) !important;\n"
-    "    }\n"
-    "    \n"
-    "    div[data-testid='stTextArea'] textarea::placeholder {\n"
-    "        color: #64748b !important;\n"
-    "    }\n"
-    "    \n"
-    "    /* Botão Primário em Ciano Futurista */\n"
-    "    div.stButton > button[kind='primary'] {\n"
-    "        background: linear-gradient(90deg, #00f2fe 0%, #0078D4 100%) !important;\n"
-    "        color: #050b14 !important;\n"
-    "        font-family: 'Orbitron', monospace !important;\n"
-    "        font-weight: 700 !important;\n"
-    "        letter-spacing: 1px !important;\n"
-    "        border: none !important;\n"
-    "        box-shadow: 0 0 15px rgba(0, 242, 254, 0.4) !important;\n"
-    "        transition: all 0.3s ease !important;\n"
-    "    }\n"
-    "    \n"
-    "    div.stButton > button[kind='primary']:hover {\n"
-    "        box-shadow: 0 0 25px rgba(0, 242, 254, 0.7) !important;\n"
-    "        transform: scale(1.02);\n"
-    "    }\n"
-    "    \n"
-    "    /* Cartões Glassmorphism */\n"
-    "    .glass-card {\n"
-    "        background: rgba(13, 27, 42, 0.75);\n"
-    "        border: 1px solid rgba(0, 242, 254, 0.25);\n"
-    "        border-radius: 12px;\n"
-    "        padding: 18px;\n"
-    "        box-shadow: 0 8px 32px 0 rgba(0, 20, 40, 0.4);\n"
-    "        backdrop-filter: blur(8px);\n"
-    "        margin-bottom: 15px;\n"
-    "    }\n"
-    "    \n"
-    "    .badge-tag {\n"
-    "        display: inline-block;\n"
-    "        background: rgba(0, 242, 254, 0.12);\n"
-    "        border: 1px solid #00f2fe;\n"
-    "        color: #00f2fe;\n"
-    "        padding: 5px 12px;\n"
-    "        border-radius: 6px;\n"
-    "        font-size: 0.95rem;\n"
-    "        margin: 3px;\n"
-    "    }\n"
-    "    \n"
-    "    /* Métricas */\n"
-    "    div[data-testid='stMetric'] {\n"
-    "        background: rgba(15, 23, 42, 0.85);\n"
-    "        border: 1px solid rgba(79, 172, 254, 0.35);\n"
-    "        padding: 14px 20px;\n"
-    "        border-radius: 10px;\n"
-    "        box-shadow: 0 0 15px rgba(79, 172, 254, 0.15);\n"
-    "    }\n"
-    "    \n"
-    "    div[data-testid='stMetricLabel'] {\n"
-    "        color: #94a3b8 !important;\n"
-    "        font-size: 0.95rem !important;\n"
-    "    }\n"
-    "    \n"
-    "    div[data-testid='stMetricValue'] {\n"
-    "        color: #38bdf8 !important;\n"
-    "        font-family: 'Orbitron', monospace !important;\n"
-    "        font-size: 1.8rem !important;\n"
-    "    }\n"
-    "</style>\n"
+st.markdown(
+    """
+    <style>
+        .main-header {
+            font-size: 2.2rem;
+            font-weight: 700;
+            color: #0078D4;
+            margin-bottom: 0.2rem;
+        }
+        .sub-header {
+            font-size: 1.05rem;
+            color: #4b5563;
+            margin-bottom: 1.8rem;
+        }
+    </style>
+    """,
+    unsafe_allow_html=True
 )
-st.markdown(CSS_THEME, unsafe_allow_html=True)
 
 # ------------------------------------------------------------------------------
-# 2. Credenciais com Fallback Seguro
+# 2. Barra Lateral: Coleta Segura de Credenciais do Usuário
 # ------------------------------------------------------------------------------
-DEFAULT_ENDPOINT = "https://marcelomaffeis-05082026-resource.services.ai.azure.com/"
-DEFAULT_API_KEY = "6t2pTNsmNafDyo53MDAFIrvvQRBZXP7dLcr5j3TLxMS34LQVq3ZUJQQJ99CHACHYHv6XJ3w3AAAAACOGT7os"
-DEFAULT_MODEL = "gpt-4.1-mini"
 API_VERSION = "2024-05-01-preview"
 
-api_key = st.secrets.get("AZURE_OPENAI_API_KEY", DEFAULT_API_KEY)
-raw_endpoint = st.secrets.get("AZURE_OPENAI_ENDPOINT", DEFAULT_ENDPOINT)
-endpoint = raw_endpoint.replace("&quot;", "").strip().rstrip("/")
-deployment_name = st.secrets.get("AZURE_OPENAI_DEPLOYMENT", DEFAULT_MODEL)
+# Valores padrão recuperados de secrets (se existirem), ou vazios para preenchimento
+secret_endpoint = st.secrets.get("AZURE_OPENAI_ENDPOINT", "")
+secret_key = st.secrets.get("AZURE_OPENAI_API_KEY", "")
+secret_model = st.secrets.get("AZURE_OPENAI_DEPLOYMENT", "gpt-4.1-mini")
 
-@st.cache_resource
-def get_azure_client(key: str, ep: str) -> AzureOpenAI:
-    return AzureOpenAI(
-        api_key=key,
-        azure_endpoint=ep,
-        api_version=API_VERSION
-    )
-
-client = get_azure_client(api_key, endpoint)
-
-# ------------------------------------------------------------------------------
-# 3. Painel Lateral de Telemetria
-# ------------------------------------------------------------------------------
 with st.sidebar:
-    st.markdown("### 🛰️ TELEMETRIA DO SISTEMA")
-    st.markdown(
-        "<div class='glass-card'>"
-        "<p style='margin:0; font-size:0.85rem; color:#94a3b8;'>NÓ CENTRAL</p>"
-        "<p style='margin:0; font-weight:bold; color:#38bdf8;'>Microsoft Foundry</p>"
-        "<hr style='border:0; border-top:1px solid rgba(255,255,255,0.1); margin:8px 0;'>"
-        f"<p style='margin:0; font-size:0.85rem; color:#94a3b8;'>MODELO: <span style='color:#e2e8f0;'>{deployment_name}</span></p>"
-        f"<p style='margin:0; font-size:0.85rem; color:#94a3b8;'>PROTOCOLO: <span style='color:#e2e8f0;'>{API_VERSION}</span></p>"
-        "</div>",
-        unsafe_allow_html=True
+    st.header("🔑 Configurações de Conexão")
+    st.caption("Insira suas credenciais do Microsoft Azure AI Foundry com segurança.")
+
+    meu_endpoint = st.text_input(
+        label="MEU_ENDPOINT",
+        value=secret_endpoint,
+        placeholder="https://seu-recurso.services.ai.azure.com/",
+        help="URL base do endpoint criado no Azure AI Foundry."
     )
-    st.markdown("#### ⚡ Status Operacional")
-    st.success("Rede Neural Conectada")
-    st.caption("Modo de inferência estruturada em formato estrito JSON.")
+
+    minha_chave = st.text_input(
+        label="MINHA_CHAVE",
+        value=secret_key,
+        type="password",
+        placeholder="••••••••••••••••••••••••",
+        help="Chave de API (Key 1 ou Key 2) do seu recurso no Azure."
+    )
+
+    meu_modelo = st.text_input(
+        label="MEU_MODELO",
+        value=secret_model,
+        placeholder="gpt-4.1-mini",
+        help="Nome exato do deployment do modelo implantado no Azure Foundry."
+    )
+
+    st.divider()
+    st.info(f"**Versão da API:** `{API_VERSION}`")
+    st.caption("🔒 Nenhuma credencial informada acima é versionada ou salva no repositório.")
+
+# Sanitização da URL do endpoint
+endpoint_formatado = meu_endpoint.replace("&quot;", "").strip().rstrip("/")
 
 # ------------------------------------------------------------------------------
-# 4. Interface Principal
+# 3. Interface Principal
 # ------------------------------------------------------------------------------
-st.markdown("<div class='futuristic-title'>⚡ NEXUS DATA EXTRACTOR</div>", unsafe_allow_html=True)
-st.markdown("<div class='futuristic-sub'>// Extração Semântica e Cognição Automatizada via Azure AI</div>", unsafe_allow_html=True)
+st.markdown('<div class="main-header">⚡ Extrator de Dados Inteligente</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-header">Estruturação semântica e análise textual via Microsoft Azure OpenAI</div>', unsafe_allow_html=True)
 
 texto_usuario = st.text_area(
-    label="Transmissão de Dados para Decodificação:",
-    placeholder="Cole aqui o texto a ser analisado...",
-    height=170
+    label="Texto para processamento:",
+    placeholder="Cole aqui o texto (e-mails, mensagens de suporte, atas de reunião, relatórios)...",
+    height=180
 )
 
-col_action, _ = st.columns([1, 3])
-processar = col_action.button("🔮 EXECUTAR EXTRAÇÃO", type="primary", use_container_width=True)
+col_acao, _ = st.columns([1, 4])
+processar = col_acao.button("🚀 Processar", type="primary", use_container_width=True)
 
 # ------------------------------------------------------------------------------
-# 5. Processamento e Visualização de Resultados
+# 4. Processamento com Validações e Chamada ao Azure OpenAI
 # ------------------------------------------------------------------------------
 if processar:
-    if not texto_usuario.strip():
-        st.warning("⚠️ Fluxo de dados nulo. Por favor, introduza texto para decodificação.")
+    if not minha_chave.strip() or not endpoint_formatado or not meu_modelo.strip():
+        st.error("⚠️ Configurações incompletas! Preencha 'MINHA_CHAVE', 'MEU_ENDPOINT' e 'MEU_MODELO' na barra lateral para continuar.")
+    elif not texto_usuario.strip():
+        st.warning("⚠️ Insira um texto para processamento.")
     else:
-        with st.spinner("⏳ A sintetizar tensores neurais no Azure AI..."):
+        with st.spinner("Processando dados com o Azure OpenAI..."):
             system_prompt = (
-                "Você é um núcleo de inteligência analítica com capacidade de extração estruturada.\n"
-                "Analise o texto fornecido e retorne ESTRITAMENTE um objeto JSON válido, "
-                "sem markdown e sem explicações externas.\n"
-                "Chaves obrigatórias no JSON:\n"
-                "- 'sentimento': string ('Positivo', 'Neutro' ou 'Negativo')\n"
-                "- 'porcentagem_sentimento': float de 0.0 a 100.0 (confiança ou intensidade)\n"
-                "- 'assunto_principal': frase concisa descrevendo o tópico principal\n"
-                "- 'pessoas_citadas': lista de strings com nomes próprios identificados (ou [] se não houver)\n"
-                "- 'nivel_de_urgencia': string estrita ('Baixo', 'Medio' ou 'Alto')"
+                "Você é um analisador e extrator de dados altamente preciso e analítico.\n"
+                "Sua única tarefa é analisar o texto enviado pelo usuário e retornar OBRIGATORIAMENTE "
+                "um único objeto JSON válido, sem blocos markdown (como ```json) ou qualquer texto adicional.\n\n"
+                "O JSON deve conter exatamente as seguintes chaves:\n"
+                "- 'sentimento': string indicando o sentimento geral ('Positivo', 'Neutro' ou 'Negativo').\n"
+                "- 'porcentagem_sentimento': float entre 0.0 e 100.0 representando a intensidade/certeza desse sentimento.\n"
+                "- 'assunto_principal': resumo sucinto em uma frase sobre o tema central.\n"
+                "- 'pessoas_citadas': lista de strings com todos os nomes de pessoas mencionadas (ou lista vazia [] caso não haja nenhuma).\n"
+                "- 'nivel_de_urgencia': string estritamente com um dos seguintes valores: 'Baixo', 'Medio' ou 'Alto'."
             )
 
             try:
+                # Inicialização dinâmica do cliente Azure OpenAI com as credenciais do usuário
+                client = AzureOpenAI(
+                    api_key=minha_chave.strip(),
+                    azure_endpoint=endpoint_formatado,
+                    api_version=API_VERSION
+                )
+
                 response = client.chat.completions.create(
-                    model=deployment_name,
+                    model=meu_modelo.strip(),
                     messages=[
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": texto_usuario}
@@ -264,51 +172,48 @@ if processar:
                 )
 
                 conteudo_raw = response.choices[0].message.content
-                dados = json.loads(conteudo_raw)
+                dados_extraidos = json.loads(conteudo_raw)
 
-                sentimento_val = dados.get("sentimento", "Indefinido")
-                pct_val = dados.get("porcentagem_sentimento", 0.0)
-                urgencia_val = dados.get("nivel_de_urgencia", "Indefinido")
+                st.success("Extração realizada com sucesso!")
+                st.subheader("📊 Métricas Analíticas")
 
-                st.markdown("<h3 style='color:#38bdf8; font-family:Orbitron;'>🔬 TELEMETRIA DE RESULTADOS</h3>", unsafe_allow_html=True)
+                col_sent, col_pct, col_urg = st.columns(3)
 
-                c1, c2, c3 = st.columns(3)
-                with c1:
-                    st.metric(label="Polaridade Sentimental", value=str(sentimento_val))
-                with c2:
-                    st.metric(
-                        label="Confiança Neural",
-                        value=f"{pct_val:.1f}%" if isinstance(pct_val, (int, float)) else str(pct_val)
-                    )
-                with c3:
-                    st.metric(label="Grau de Prioridade", value=str(urgencia_val))
+                sentimento = dados_extraidos.get("sentimento", "N/A")
+                pct_sentimento = dados_extraidos.get("porcentagem_sentimento", 0.0)
+                urgencia = dados_extraidos.get("nivel_de_urgencia", "N/A")
 
-                st.markdown("<br>", unsafe_allow_html=True)
+                with col_sent:
+                    st.metric(label="Sentimento", value=str(sentimento))
 
-                col_resumo, col_entidades = st.columns([1.8, 1.2])
+                with col_pct:
+                    valor_formatado = f"{pct_sentimento:.1f}%" if isinstance(pct_sentimento, (int, float)) else str(pct_sentimento)
+                    st.metric(label="Porcentagem de Sentimento", value=valor_formatado)
 
-                with col_resumo:
-                    st.markdown(
-                        "<div class='glass-card'>"
-                        "<h4 style='color:#00f2fe; margin-top:0;'>📍 Sumário Central</h4>"
-                        f"<p style='font-size:1.05rem; color:#e2e8f0;'>{dados.get('assunto_principal', 'Não catalogado.')}</p>"
-                        "</div>",
-                        unsafe_allow_html=True
-                    )
+                with col_urg:
+                    st.metric(label="Nível de Urgência", value=str(urgencia))
 
-                with col_entidades:
-                    pessoas = dados.get("pessoas_citadas", [])
-                    badges = "".join([f"<span class='badge-tag'>{p}</span>" for p in pessoas]) if pessoas else "<span style='color:#64748b;'>Nenhum vetor de identidade detetado.</span>"
-                    st.markdown(
-                        "<div class='glass-card'>"
-                        "<h4 style='color:#00f2fe; margin-top:0;'>👤 Vetores de Identidade</h4>"
-                        f"{badges}"
-                        "</div>",
-                        unsafe_allow_html=True
-                    )
+                st.divider()
 
-                with st.expander("📡 CARGA ÚTIL DA MATRIZ (RAW JSON)", expanded=False):
-                    st.json(dados)
+                col_assunto, col_pessoas = st.columns([2, 1])
 
-            except Exception as erro:
-                st.error(f"Falha na comunicação com o nó Azure: {erro}")
+                with col_assunto:
+                    st.markdown("#### 🎯 Assunto Principal")
+                    st.info(dados_extraidos.get("assunto_principal", "Nenhum assunto identificado."))
+
+                with col_pessoas:
+                    st.markdown("#### 👥 Pessoas Citadas")
+                    pessoas = dados_extraidos.get("pessoas_citadas", [])
+                    if pessoas and isinstance(pessoas, list):
+                        for pessoa in pessoas:
+                            st.write(f"- **{pessoa}**")
+                    else:
+                        st.caption("Nenhuma pessoa citada no texto.")
+
+                st.markdown("#### 🗄️ JSON Estruturado")
+                st.json(dados_extraidos)
+
+            except json.JSONDecodeError as json_err:
+                st.error(f"Erro ao decodificar a resposta JSON do modelo: {json_err}")
+            except Exception as api_err:
+                st.error(f"Erro na comunicação com o serviço Azure OpenAI: {api_err}")
